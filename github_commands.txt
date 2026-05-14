@@ -1,0 +1,17 @@
+git init && git add -A && git commit -m "$(cat <<'EOF'
+Initial release: Arbiter — MCP-powered AI reasoning engine for incident investigation
+
+Ported from a battle-tested internal tool (Replix) used in production
+incident response. All company-specific content removed; all reasoning
+methodology, collectors, and MCP tooling preserved.
+
+Phase 1: Core reasoning engine (models, causal chain, confidence scoring,
+         incident knowledge base, metrics, credential resolution,
+         service configuration schema)
+Phase 2: 11 collectors (Datadog, GCP, Sentry, OpsGenie, GitHub, git,
+         Kubernetes, status pages, manual parser, source code),
+         MCP server (~60 tools), CLI, report renderer
+Phase 3: Investigation protocol (CLAUDE.md), 5 Claude Code skills,
+         report templates
+EOF
+)"

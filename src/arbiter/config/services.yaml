@@ -1,0 +1,177 @@
+# Arbiter — Service Configuration
+#
+# This file defines your services, their observability sources, dependencies,
+# and infrastructure. Arbiter uses this to know where to look during
+# investigations and how failures propagate between services.
+#
+# Copy this file to ~/arbiter/services.yaml and customize it for your platform.
+# Or set ARBITER_HOME to point to a directory containing your services.yaml.
+
+# --- Organization ---
+# Global defaults for GitHub org, Sentry org, etc.
+organization:
+  name: "acme"
+  github_org: "acme-platform"
+  sentry_org: "acmeplatform"
+
+# --- Jira Integration (optional) ---
+jira:
+  cloud_id: "acme-eng.atlassian.net"
+  default_project: "PLATFORM"
+
+# --- Environment Aliases ---
+# Maps shorthand names to Datadog environment tags.
+# Arbiter auto-resolves these in conversations, alerts, and CLI args.
+environments:
+  production: production
+  prod: production
+  integration: integration
+  dev: integration
+  staging: staging
+  stag: staging
+
+# --- GKE Clusters (optional) ---
+# Referenced by services via infrastructure.gke_cluster.
+# gke_clusters:
+#   prod-cluster-us-east1:
+#     project: infra-prod-889d
+#     location: us-east1
+
+# --- Services ---
+services:
+
+  # --- Flask + React + PostgreSQL service with frontend RUM ---
+  catalog:
+    description: "Product catalog — CRUD, categories, inventory, search"
+    datadog_service: "catalog-api"
+    gcp_project: "catalog-prod-7ccf"
+    github_repo: "acme-platform/catalog"
+    sentry_project: "catalog"
+    jira_project: "CATALOG"
+    database:
+      type: "postgresql"
+      cloudsql_instance: "catalog-prod-primary"
+    depends_on:
+      - platform-core
+      - audit-log
+      - asset-pipeline
+    infrastructure:
+      platform: "gke"
+      cluster: "prod-cluster-us-east1"
+      namespace: "catalog"
+    frontend:
+      has_ui: true
+      rum: true
+      cdn: "cloudflare"
+    noise_filters:
+      - tag_filter: "-@http.useragent:libcurl*"
+        description: "Internal health check bot traffic"
+
+  # --- Large monolith with Spanner ---
+  platform-core:
+    description: "Core platform monolith — 900+ routes, auth, projects, accounts"
+    datadog_service: "platform-core"
+    gcp_project: "platform-core-prod-87l6"
+    github_repo: "acme-platform/platform-core"
+    sentry_project: "platform-core"
+    database:
+      type: "spanner"
+      instance: "platform-core-prod"
+    depends_on: []
+    infrastructure:
+      platform: "gke"
+      cluster: "prod-cluster-us-east1"
+      namespace: "platform-core"
+    frontend:
+      has_ui: true
+      rum: true
+
+  # --- Change tracking service (Flask + PostgreSQL + webhooks) ---
+  audit-log:
+    description: "Tracks entity revisions, computes diffs, fires webhooks"
+    datadog_service: "audit-log"
+    gcp_project: "audit-log-prod-0mrq"
+    github_repo: "acme-platform/audit-log"
+    sentry_project: "audit-log"
+    database:
+      type: "postgresql"
+      cloudsql_instance: "audit-log-prod-primary"
+    depends_on:
+      - platform-core
+    infrastructure:
+      platform: "gke"
+      cluster: "prod-cluster-us-east1"
+      namespace: "audit-log"
+
+  # --- Pub/Sub worker with NO HTTP endpoints ---
+  asset-pipeline:
+    description: "Builds and publishes static assets to CDN on entity changes"
+    datadog_service: "asset-pipeline"
+    gcp_project: "asset-pipeline-prod-2101"
+    github_repo: "acme-platform/asset-pipeline"
+    sentry_project: "asset-pipeline"
+    database:
+      type: "postgresql"
+      cloudsql_instance: "asset-pipeline-prod-primary"
+    depends_on:
+      - platform-core
+    infrastructure:
+      platform: "gke"
+      cluster: "prod-cluster-us-east1"
+      namespace: "asset-pipeline"
+    message_queues:
+      - type: "pubsub"
+        subscription: "asset-ingress-sub"
+        topic: "entity-changes"
+    deploy_method: "tag"  # tag-based deploys via GitHub Actions, not PR merges
+
+  # --- API gateway (NGINX + Go + Python) ---
+  api-gateway:
+    description: "Public API gateway — routing, rate limiting, auth validation"
+    datadog_service: "api-gateway"
+    gcp_project: "infra-prod-889d"
+    github_repo: "acme-platform/api-gateway"
+    database:
+      type: "none"
+    depends_on:
+      - platform-core
+      - catalog
+      - auth-service
+    infrastructure:
+      platform: "gke"
+      cluster: "prod-cluster-us-east1"
+      namespace: "api-gateway"
+
+  # --- Auth/token service (Go, App Engine, Datastore) ---
+  auth-service:
+    description: "OAuth token issuance and JWT validation"
+    datadog_service: "auth-service"
+    gcp_project: "auth-prod-hrd"
+    github_repo: "acme-platform/auth-service"
+    database:
+      type: "datastore"
+    depends_on: []
+    infrastructure:
+      platform: "app-engine"
+
+  # --- Scheduled task service (FastAPI + PostgreSQL + Pub/Sub) ---
+  task-scheduler:
+    description: "Scheduled operations — campaign activation, timed releases"
+    datadog_service: "task-scheduler"
+    gcp_project: "task-scheduler-prod-31jy"
+    github_repo: "acme-platform/task-scheduler"
+    sentry_project: "task-scheduler"
+    database:
+      type: "postgresql"
+      cloudsql_instance: "task-scheduler-prod-primary"
+    depends_on:
+      - catalog
+      - platform-core
+    infrastructure:
+      platform: "gke"
+      cluster: "prod-cluster-us-east1"
+      namespace: "task-scheduler"
+    message_queues:
+      - type: "pubsub"
+        subscription: "scheduled-tasks-sub"
+        topic: "scheduled-tasks"
